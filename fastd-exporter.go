@@ -18,8 +18,9 @@ import (
 )
 
 var (
-	address   = flag.String("listen-address", ":9099", "The address to listen on for HTTP requests.")
-	instances = flag.String("instances", "", "The fastd instances to Update on, comma separated.")
+	address     = flag.String("web.listen-address", ":9099", "Address on which to expose metrics and web interface.")
+	metricsPath = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
+	instances   = flag.String("instances", "", "The fastd instances to Update on, comma separated.")
 )
 
 // These are the structs necessary for unmarshalling the data that is being
@@ -65,23 +66,22 @@ type PrometheusExporter struct {
 	uptime *prometheus.Desc
 
 	rxPackets *prometheus.Desc
-	rxBytes *prometheus.Desc
+	rxBytes   *prometheus.Desc
 
 	rxReorderedPackets *prometheus.Desc
-	rxReorderedBytes *prometheus.Desc
+	rxReorderedBytes   *prometheus.Desc
 
 	txPackets *prometheus.Desc
-	txBytes *prometheus.Desc
+	txBytes   *prometheus.Desc
 
 	txDroppedPackets *prometheus.Desc
-	txDroppedBytes *prometheus.Desc
+	txDroppedBytes   *prometheus.Desc
 
 	txErrorPackets *prometheus.Desc
-	txErrorBytes *prometheus.Desc
+	txErrorBytes   *prometheus.Desc
 }
 
-
-func c(parts... string) string {
+func c(parts ...string) string {
 	parts = append([]string{"fastd"}, parts...)
 	return strings.Join(parts, "_")
 }
@@ -92,23 +92,23 @@ func NewPrometheusExporter(instanceName string, sockName string) PrometheusExpor
 
 	return PrometheusExporter{
 		SocketName: sockName,
-		uptime: prometheus.NewDesc(c(instanceName ,"uptime"), "uptime of the prometheus exporter", nil, l),
+		uptime:     prometheus.NewDesc(c(instanceName, "uptime"), "uptime of the prometheus exporter", nil, l),
 
-		rxPackets: prometheus.NewDesc(c("rx_packets"), "rx packet count", nil, l),
-		rxBytes: prometheus.NewDesc(c("rx_bytes"), "rx byte count", nil, l),
+		rxPackets:          prometheus.NewDesc(c("rx_packets"), "rx packet count", nil, l),
+		rxBytes:            prometheus.NewDesc(c("rx_bytes"), "rx byte count", nil, l),
 		rxReorderedPackets: prometheus.NewDesc(c("rx_reordered_packets"), "rx reordered packets", nil, l),
-		rxReorderedBytes: prometheus.NewDesc(c("rx_reordered_bytes"), "rx reordered packets", nil, l),
+		rxReorderedBytes:   prometheus.NewDesc(c("rx_reordered_bytes"), "rx reordered packets", nil, l),
 
-		txPackets: prometheus.NewDesc(c("tx_packets"), "tx packet count", nil, l),
-		txBytes: prometheus.NewDesc(c("tx_bytes"), "tx byte count", nil, l),
+		txPackets:        prometheus.NewDesc(c("tx_packets"), "tx packet count", nil, l),
+		txBytes:          prometheus.NewDesc(c("tx_bytes"), "tx byte count", nil, l),
 		txDroppedPackets: prometheus.NewDesc(c("tx_dropped_packets"), "tx dropped packets", nil, l),
-		txDroppedBytes: prometheus.NewDesc(c("tx_dropped_bytes"), "tx dropped packets", nil, l),
+		txDroppedBytes:   prometheus.NewDesc(c("tx_dropped_bytes"), "tx dropped packets", nil, l),
 	}
 }
 
 func (e PrometheusExporter) Describe(c chan<- *prometheus.Desc) {
 	c <- e.uptime
-	
+
 	c <- e.rxPackets
 	c <- e.rxBytes
 	c <- e.rxReorderedPackets
@@ -123,7 +123,7 @@ func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
 	data := data_from_sock(e.SocketName)
 
 	c <- prometheus.MustNewConstMetric(e.uptime, prometheus.GaugeValue, data.Uptime)
-	
+
 	c <- prometheus.MustNewConstMetric(e.rxPackets, prometheus.CounterValue, float64(data.Statistics.RX.Count))
 	c <- prometheus.MustNewConstMetric(e.rxBytes, prometheus.CounterValue, float64(data.Statistics.RX.Bytes))
 	c <- prometheus.MustNewConstMetric(e.rxReorderedPackets, prometheus.CounterValue, float64(data.Statistics.RX_Reordered.Count))
@@ -192,6 +192,16 @@ func main() {
 	prometheus.MustRegister(exp)
 
 	// Expose the registered metrics via HTTP.
-	http.Handle("/metrics", promhttp.Handler())
+	http.Handle(*metricsPath, promhttp.Handler())
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<html>
+		<head><title>fastd exporter</title></head>
+		<body>
+		<h1>fastd exporter</h1>
+		<p><a href="` + *metricsPath + `">Metrics</a></p>
+		</body>
+		</html>`))
+	})
+
 	log.Fatal(http.ListenAndServe(*address, nil))
 }

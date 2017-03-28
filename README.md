@@ -2,6 +2,12 @@
 
 We are building a prometheus exporter for the fastd vpn daemon. We don't have a working version yet, stay tuned
 
+## Formatting
+
+We are using `go fmt` for formatting the code.
+
+## Getting Started
+
 For now run
 
 ```
