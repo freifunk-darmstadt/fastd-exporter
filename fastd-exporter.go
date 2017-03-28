@@ -56,10 +56,6 @@ type Peer struct {
 	MAC []string `json:"mac_addresses"`
 }
 
-func init() {
-	// register metrics
-}
-
 type PrometheusExporter struct {
 	SocketName string
 
@@ -86,13 +82,12 @@ func c(parts ...string) string {
 	return strings.Join(parts, "_")
 }
 
-func NewPrometheusExporter(instanceName string, sockName string) PrometheusExporter {
-
-	l := prometheus.Labels{"fastd_instance": instanceName}
+func NewPrometheusExporter(ifName string, sockName string) PrometheusExporter {
+	l := prometheus.Labels{"interface": ifName}
 
 	return PrometheusExporter{
 		SocketName: sockName,
-		uptime:     prometheus.NewDesc(c(instanceName, "uptime"), "uptime of the prometheus exporter", nil, l),
+		uptime:     prometheus.NewDesc(c("uptime"), "uptime of the prometheus exporter", nil, l),
 
 		rxPackets:          prometheus.NewDesc(c("rx_packets"), "rx packet count", nil, l),
 		rxBytes:            prometheus.NewDesc(c("rx_bytes"), "rx byte count", nil, l),
@@ -113,6 +108,7 @@ func (e PrometheusExporter) Describe(c chan<- *prometheus.Desc) {
 	c <- e.rxBytes
 	c <- e.rxReorderedPackets
 	c <- e.rxReorderedBytes
+
 	c <- e.txPackets
 	c <- e.txBytes
 	c <- e.txDroppedPackets
@@ -133,7 +129,6 @@ func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
 	c <- prometheus.MustNewConstMetric(e.txBytes, prometheus.CounterValue, float64(data.Statistics.TX.Bytes))
 	c <- prometheus.MustNewConstMetric(e.txDroppedPackets, prometheus.CounterValue, float64(data.Statistics.TX.Count))
 	c <- prometheus.MustNewConstMetric(e.txDroppedBytes, prometheus.CounterValue, float64(data.Statistics.TX_Dropped.Bytes))
-
 }
 
 func data_from_sock(sock string) Message {
@@ -159,19 +154,30 @@ func data_from_sock(sock string) Message {
 	return msg
 }
 
-func sock_from_instance(instance string) (string, error) {
+func config_from_instance(instance string) (string, string, error) {
+	/*
+	 * Parse fastds configuration and extract
+	 *  a) interface     -> which is exposed as a label to identify the instance
+	 *  b) status socket -> where we can extract status information for the instance
+	 *
+	 * Returns ifNamme, sockPath, err
+	 * Errors when either configuration key is missing or the config file could not be read.
+	 */
 	data, err := ioutil.ReadFile(fmt.Sprintf("/etc/fastd/%s/fastd.conf", instance))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	pattern := regexp.MustCompile("status socket \"([^\"]+)\";")
-	matches := pattern.FindSubmatch(data)
+	sockPath_pattern := regexp.MustCompile("status socket \"([^\"]+)\";")
+	sockPath := sockPath_pattern.FindSubmatch(data)
 
-	if len(matches) > 1 {
-		return string(matches[1]), nil
+	ifName_pattern := regexp.MustCompile("interface \"([^\"]+)\";")
+	ifName := ifName_pattern.FindSubmatch(data)[1]
+
+	if len(sockPath) > 1 && len(ifName) > 1 {
+		return string(ifName), string(sockPath[1]), nil
 	} else {
-		return "", errors.New(fmt.Sprintf("Instance %s has no status socket configured.", instance))
+		return "", "", errors.New(fmt.Sprintf("Instance %s is missing one of ('status socket', 'interface') declaration.", instance))
 	}
 }
 
@@ -182,14 +188,16 @@ func main() {
 		log.Fatal("No instance given, exiting.")
 	}
 
-	sock, err := sock_from_instance(*instances)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("Reading fastd data from %v", sock)
-	exp := NewPrometheusExporter(*instances, sock)
+	instances := strings.Split(*instances, ",")
 
-	prometheus.MustRegister(exp)
+	for i := 0; i < len(instances); i++ {
+		ifName, sockPath, err := config_from_instance(instances[i])
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("Reading fastd data for %v from %v", ifName, sockPath)
+		go prometheus.MustRegister(NewPrometheusExporter(ifName, sockPath))
+	}
 
 	// Expose the registered metrics via HTTP.
 	http.Handle(*metricsPath, promhttp.Handler())
