@@ -59,6 +59,7 @@ type Peer struct {
 type PrometheusExporter struct {
 	SocketName string
 
+	up *prometheus.Desc
 	uptime *prometheus.Desc
 
 	rxPackets *prometheus.Desc
@@ -87,7 +88,8 @@ func NewPrometheusExporter(ifName string, sockName string) PrometheusExporter {
 
 	return PrometheusExporter{
 		SocketName: sockName,
-		uptime:     prometheus.NewDesc(c("uptime"), "uptime of the prometheus exporter", nil, l),
+		up:         prometheus.NewDesc(c("up"), "whether the fastd process is up", nil, l),
+		uptime:     prometheus.NewDesc(c("uptime"), "uptime of the fastd process", nil, l),
 
 		rxPackets:          prometheus.NewDesc(c("rx_packets"), "rx packet count", nil, l),
 		rxBytes:            prometheus.NewDesc(c("rx_bytes"), "rx byte count", nil, l),
@@ -102,6 +104,7 @@ func NewPrometheusExporter(ifName string, sockName string) PrometheusExporter {
 }
 
 func (e PrometheusExporter) Describe(c chan<- *prometheus.Desc) {
+	c <- e.up
 	c <- e.uptime
 
 	c <- e.rxPackets
@@ -116,7 +119,13 @@ func (e PrometheusExporter) Describe(c chan<- *prometheus.Desc) {
 }
 
 func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
-	data := data_from_sock(e.SocketName)
+	data, err := data_from_sock(e.SocketName)
+	if err != nil {
+		log.Print(err)
+		c <- prometheus.MustNewConstMetric(e.up, prometheus.GaugeValue, 0)
+	} else {
+		c <- prometheus.MustNewConstMetric(e.up, prometheus.GaugeValue, 1)
+	}
 
 	c <- prometheus.MustNewConstMetric(e.uptime, prometheus.GaugeValue, data.Uptime)
 
@@ -131,10 +140,10 @@ func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
 	c <- prometheus.MustNewConstMetric(e.txDroppedBytes, prometheus.CounterValue, float64(data.Statistics.TX_Dropped.Bytes))
 }
 
-func data_from_sock(sock string) Message {
+func data_from_sock(sock string) (Message, error) {
 	conn, err := net.DialTimeout("unix", sock, 2*time.Second)
 	if err != nil {
-		log.Fatal(err)
+		return Message{}, err
 	}
 	defer conn.Close()
 
@@ -142,16 +151,16 @@ func data_from_sock(sock string) Message {
 	msg := Message{}
 	err = decoder.Decode(&msg)
 	if err != nil {
-		log.Fatal(err)
+		return Message{}, err
 	}
 
 	dat, err := json.MarshalIndent(msg, "", "\t")
 	if err != nil {
-		log.Fatal(err)
+		return Message{}, err
 	}
 
 	log.Print(string(dat))
-	return msg
+	return msg, nil
 }
 
 func config_from_instance(instance string) (string, string, error) {
