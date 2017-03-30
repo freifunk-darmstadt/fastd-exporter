@@ -154,12 +154,6 @@ func data_from_sock(sock string) (Message, error) {
 		return Message{}, err
 	}
 
-	dat, err := json.MarshalIndent(msg, "", "\t")
-	if err != nil {
-		return Message{}, err
-	}
-
-	log.Print(string(dat))
 	return msg, nil
 }
 
