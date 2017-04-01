@@ -49,9 +49,9 @@ type Peer struct {
 	Name       string `json:"name"`
 	Address    string `json:"address"`
 	Connection *struct {
-		Established time.Duration `json:"established"`
-		Method      string        `json:"method"`
-		Statistics  Statistics    `json:"statistics"`
+		Established float64    `json:"established"`
+		Method      string     `json:"method"`
+		Statistics  Statistics `json:"statistics"`
 	} `json:"connection"`
 	MAC []string `json:"mac_addresses"`
 }
@@ -59,7 +59,7 @@ type Peer struct {
 type PrometheusExporter struct {
 	SocketName string
 
-	up *prometheus.Desc
+	up     *prometheus.Desc
 	uptime *prometheus.Desc
 
 	rxPackets *prometheus.Desc
@@ -76,6 +76,21 @@ type PrometheusExporter struct {
 
 	txErrorPackets *prometheus.Desc
 	txErrorBytes   *prometheus.Desc
+
+	peerUp     *prometheus.Desc
+	peerUptime *prometheus.Desc
+
+	peerRxPackets          *prometheus.Desc
+	peerRxBytes            *prometheus.Desc
+	peerRxReorderedPackets *prometheus.Desc
+	peerRxReorderedBytes   *prometheus.Desc
+
+	peerTxPackets        *prometheus.Desc
+	peerTxBytes          *prometheus.Desc
+	peerTxDroppedPackets *prometheus.Desc
+	peerTxDroppedBytes   *prometheus.Desc
+	peerTxErrorPackets   *prometheus.Desc
+	peerTxErrorBytes     *prometheus.Desc
 }
 
 func c(parts ...string) string {
@@ -84,22 +99,46 @@ func c(parts ...string) string {
 }
 
 func NewPrometheusExporter(ifName string, sockName string) PrometheusExporter {
+	// persistent labels
 	l := prometheus.Labels{"interface": ifName}
+
+	// dynamic labels
+	p := []string{"public_key", "name"}
 
 	return PrometheusExporter{
 		SocketName: sockName,
-		up:         prometheus.NewDesc(c("up"), "whether the fastd process is up", nil, l),
-		uptime:     prometheus.NewDesc(c("uptime"), "uptime of the fastd process", nil, l),
+
+		// global metrics
+		up:     prometheus.NewDesc(c("up"), "whether the fastd process is up", nil, l),
+		uptime: prometheus.NewDesc(c("uptime"), "uptime of the fastd process", nil, l),
 
 		rxPackets:          prometheus.NewDesc(c("rx_packets"), "rx packet count", nil, l),
 		rxBytes:            prometheus.NewDesc(c("rx_bytes"), "rx byte count", nil, l),
-		rxReorderedPackets: prometheus.NewDesc(c("rx_reordered_packets"), "rx reordered packets", nil, l),
-		rxReorderedBytes:   prometheus.NewDesc(c("rx_reordered_bytes"), "rx reordered packets", nil, l),
+		rxReorderedPackets: prometheus.NewDesc(c("rx_reordered_packets"), "rx reordered packets count", nil, l),
+		rxReorderedBytes:   prometheus.NewDesc(c("rx_reordered_bytes"), "rx reordered bytes count", nil, l),
 
 		txPackets:        prometheus.NewDesc(c("tx_packets"), "tx packet count", nil, l),
 		txBytes:          prometheus.NewDesc(c("tx_bytes"), "tx byte count", nil, l),
-		txDroppedPackets: prometheus.NewDesc(c("tx_dropped_packets"), "tx dropped packets", nil, l),
-		txDroppedBytes:   prometheus.NewDesc(c("tx_dropped_bytes"), "tx dropped packets", nil, l),
+		txDroppedPackets: prometheus.NewDesc(c("tx_dropped_packets"), "tx dropped packets count", nil, l),
+		txDroppedBytes:   prometheus.NewDesc(c("tx_dropped_bytes"), "tx dropped bytes count", nil, l),
+		txErrorPackets:   prometheus.NewDesc(c("tx_error_packets"), "tx error packets count", nil, l),
+		txErrorBytes:     prometheus.NewDesc(c("tx_error_bytes"), "tx error bytes count", nil, l),
+
+		// per peer metrics
+		peerUp:     prometheus.NewDesc(c("peer_up"), "whether the peer is connected", p, l),
+		peerUptime: prometheus.NewDesc(c("peer_uptime"), "peer session uptime", p, l),
+
+		peerRxPackets:          prometheus.NewDesc(c("peer_rx_packets"), "peer rx packets count", p, l),
+		peerRxBytes:            prometheus.NewDesc(c("peer_rx_bytes"), "peer rx bytes count", p, l),
+		peerRxReorderedPackets: prometheus.NewDesc(c("peer_rx_reordered_packets"), "peer rx reordered packets count", p, l),
+		peerRxReorderedBytes:   prometheus.NewDesc(c("peer_rx_reordered_bytes"), "peer rx reordered bytes count", p, l),
+
+		peerTxPackets:        prometheus.NewDesc(c("peer_tx_packets"), "peer rx packet count", p, l),
+		peerTxBytes:          prometheus.NewDesc(c("peer_tx_bytes"), "peer rx bytes count", p, l),
+		peerTxDroppedPackets: prometheus.NewDesc(c("peer_tx_dropped_packets"), "peer tx dropped packets count", p, l),
+		peerTxDroppedBytes:   prometheus.NewDesc(c("peer_tx_dropped_bytes"), "peer tx dropped bytes count", p, l),
+		peerTxErrorPackets:   prometheus.NewDesc(c("peer_tx_error_packets"), "peer tx error packets count", p, l),
+		peerTxErrorBytes:     prometheus.NewDesc(c("peer_tx_error_bytes"), "peer tx error bytes count", p, l),
 	}
 }
 
@@ -116,6 +155,21 @@ func (e PrometheusExporter) Describe(c chan<- *prometheus.Desc) {
 	c <- e.txBytes
 	c <- e.txDroppedPackets
 	c <- e.txDroppedBytes
+
+	c <- e.peerUp
+	c <- e.peerUptime
+
+	c <- e.peerRxPackets
+	c <- e.peerRxBytes
+	c <- e.peerRxReorderedPackets
+	c <- e.peerRxReorderedBytes
+
+	c <- e.peerTxPackets
+	c <- e.peerTxBytes
+	c <- e.peerTxDroppedPackets
+	c <- e.peerTxDroppedBytes
+	c <- e.peerTxErrorPackets
+	c <- e.peerTxErrorBytes
 }
 
 func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
@@ -138,6 +192,27 @@ func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
 	c <- prometheus.MustNewConstMetric(e.txBytes, prometheus.CounterValue, float64(data.Statistics.TX.Bytes))
 	c <- prometheus.MustNewConstMetric(e.txDroppedPackets, prometheus.CounterValue, float64(data.Statistics.TX.Count))
 	c <- prometheus.MustNewConstMetric(e.txDroppedBytes, prometheus.CounterValue, float64(data.Statistics.TX_Dropped.Bytes))
+
+	for publicKey, peer := range data.Peers {
+		if peer.Connection == nil {
+			c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(0), publicKey, peer.Name)
+		} else {
+			c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(1), publicKey, peer.Name)
+			c <- prometheus.MustNewConstMetric(e.peerUptime, prometheus.GaugeValue, peer.Connection.Established, publicKey, peer.Name)
+
+			c <- prometheus.MustNewConstMetric(e.peerRxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.RX.Count), publicKey, peer.Name)
+			c <- prometheus.MustNewConstMetric(e.peerRxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.RX.Bytes), publicKey, peer.Name)
+			c <- prometheus.MustNewConstMetric(e.peerRxReorderedPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.RX_Reordered.Count), publicKey, peer.Name)
+			c <- prometheus.MustNewConstMetric(e.peerRxReorderedBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.RX_Reordered.Bytes), publicKey, peer.Name)
+
+			c <- prometheus.MustNewConstMetric(e.peerTxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TX.Count), publicKey, peer.Name)
+			c <- prometheus.MustNewConstMetric(e.peerTxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TX.Bytes), publicKey, peer.Name)
+			c <- prometheus.MustNewConstMetric(e.peerTxDroppedPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Dropped.Count), publicKey, peer.Name)
+			c <- prometheus.MustNewConstMetric(e.peerTxDroppedBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Dropped.Bytes), publicKey, peer.Name)
+			c <- prometheus.MustNewConstMetric(e.peerTxErrorPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Error.Count), publicKey, peer.Name)
+			c <- prometheus.MustNewConstMetric(e.peerTxErrorBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Error.Bytes), publicKey, peer.Name)
+		}
+	}
 }
 
 func data_from_sock(sock string) (Message, error) {
