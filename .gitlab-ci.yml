@@ -1,0 +1,25 @@
+.build_template: &build
+  stage: test
+
+  # before_script:
+  #  - # install depds etc...
+
+  script: 
+    - mkdir -p ${GOPATH}/src/git.darmstadt.ccc.de/ffda
+    - ln -rs ../fastd-exporter ${GOPATH}/src/git.darmstadt.ccc.de/ffda/
+    - cd ${GOPATH}/src/git.darmstadt.ccc.de/ffda/fastd-exporter
+    - go fmt
+    - git diff --exit-code
+    - go get ./...
+    - go build
+    - ls -lah fastd-exporter
+
+test:1.7:
+  <<: *build
+  image: golang:1.7
+
+
+test:1.8:
+  <<: *build
+  image: golang:1.8
+
