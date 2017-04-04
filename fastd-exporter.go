@@ -181,7 +181,7 @@ func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
 		c <- prometheus.MustNewConstMetric(e.up, prometheus.GaugeValue, 1)
 	}
 
-	c <- prometheus.MustNewConstMetric(e.uptime, prometheus.GaugeValue, data.Uptime / 1000)
+	c <- prometheus.MustNewConstMetric(e.uptime, prometheus.GaugeValue, data.Uptime/1000)
 
 	c <- prometheus.MustNewConstMetric(e.rxPackets, prometheus.CounterValue, float64(data.Statistics.RX.Count))
 	c <- prometheus.MustNewConstMetric(e.rxBytes, prometheus.CounterValue, float64(data.Statistics.RX.Bytes))
@@ -198,7 +198,7 @@ func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
 			c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(0), publicKey, peer.Name)
 		} else {
 			c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(1), publicKey, peer.Name)
-			c <- prometheus.MustNewConstMetric(e.peerUptime, prometheus.GaugeValue, peer.Connection.Established / 1000, publicKey, peer.Name)
+			c <- prometheus.MustNewConstMetric(e.peerUptime, prometheus.GaugeValue, peer.Connection.Established/1000, publicKey, peer.Name)
 
 			c <- prometheus.MustNewConstMetric(e.peerRxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.RX.Count), publicKey, peer.Name)
 			c <- prometheus.MustNewConstMetric(e.peerRxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.RX.Bytes), publicKey, peer.Name)
