@@ -110,7 +110,7 @@ func NewPrometheusExporter(ifName string, sockName string) PrometheusExporter {
 
 		// global metrics
 		up:     prometheus.NewDesc(c("up"), "whether the fastd process is up", nil, l),
-		uptime: prometheus.NewDesc(c("uptime"), "uptime of the fastd process", nil, l),
+		uptime: prometheus.NewDesc(c("uptime_seconds"), "uptime of the fastd process", nil, l),
 
 		rxPackets:          prometheus.NewDesc(c("rx_packets"), "rx packet count", nil, l),
 		rxBytes:            prometheus.NewDesc(c("rx_bytes"), "rx byte count", nil, l),
@@ -126,7 +126,7 @@ func NewPrometheusExporter(ifName string, sockName string) PrometheusExporter {
 
 		// per peer metrics
 		peerUp:     prometheus.NewDesc(c("peer_up"), "whether the peer is connected", p, l),
-		peerUptime: prometheus.NewDesc(c("peer_uptime"), "peer session uptime", p, l),
+		peerUptime: prometheus.NewDesc(c("peer_uptime_seconds"), "peer session uptime", p, l),
 
 		peerRxPackets:          prometheus.NewDesc(c("peer_rx_packets"), "peer rx packets count", p, l),
 		peerRxBytes:            prometheus.NewDesc(c("peer_rx_bytes"), "peer rx bytes count", p, l),
@@ -181,7 +181,7 @@ func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
 		c <- prometheus.MustNewConstMetric(e.up, prometheus.GaugeValue, 1)
 	}
 
-	c <- prometheus.MustNewConstMetric(e.uptime, prometheus.GaugeValue, data.Uptime)
+	c <- prometheus.MustNewConstMetric(e.uptime, prometheus.GaugeValue, data.Uptime / 1000)
 
 	c <- prometheus.MustNewConstMetric(e.rxPackets, prometheus.CounterValue, float64(data.Statistics.RX.Count))
 	c <- prometheus.MustNewConstMetric(e.rxBytes, prometheus.CounterValue, float64(data.Statistics.RX.Bytes))
@@ -198,7 +198,7 @@ func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
 			c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(0), publicKey, peer.Name)
 		} else {
 			c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(1), publicKey, peer.Name)
-			c <- prometheus.MustNewConstMetric(e.peerUptime, prometheus.GaugeValue, peer.Connection.Established, publicKey, peer.Name)
+			c <- prometheus.MustNewConstMetric(e.peerUptime, prometheus.GaugeValue, peer.Connection.Established / 1000, publicKey, peer.Name)
 
 			c <- prometheus.MustNewConstMetric(e.peerRxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.RX.Count), publicKey, peer.Name)
 			c <- prometheus.MustNewConstMetric(e.peerRxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.RX.Bytes), publicKey, peer.Name)
