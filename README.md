@@ -1,6 +1,6 @@
 # fastd-exporter
 
-We are building a prometheus exporter for the fastd vpn daemon.
+We are building a prometheus exporter for the [fastd](https://projects.universe-factory.net/projects/fastd/wiki)  vpn daemon.
 
 We have a working version, but the metrics, and by extension their labels, are not stable yet.
 When they are we will very likely be tagging our first release.
@@ -33,9 +33,7 @@ $ ./fastd-exporter --help
 
 We are happy to discuss the fastd-exporter with you on:
 
-> irc.hackint.org
-
-> #ffda-exporter
+> irc.hackint.org #fastd-exporter
 
 ### Formatting
 
