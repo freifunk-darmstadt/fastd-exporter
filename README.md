@@ -10,7 +10,7 @@ When they are we will very likely be tagging our first release.
 For now run
 
 ```
-$ go build
+$ go get github.com/freifunk-darmstadt/fastd-exporter
 ```
 
 and
