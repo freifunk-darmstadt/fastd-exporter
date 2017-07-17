@@ -21,7 +21,7 @@ $ ./fastd-exporter --instance ffda
 
 The exporter will need read access to both the instances `fastd.conf` and `status socket`, keep that in mind.
 
-By default the metrics webserver will listen on `:9099`, which can be changed through the `--web.listen-address` parameter.
+By default the metrics webserver will listen on `:9281`, which can be changed through the `--web.listen-address` parameter.
 
 Check out the help for additional information.
 

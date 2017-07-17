@@ -18,13 +18,12 @@ import (
 )
 
 var (
-	address     = flag.String("web.listen-address", ":9099", "Address on which to expose metrics and web interface.")
+	address     = flag.String("web.listen-address", ":9281", "Address on which to expose metrics and web interface.")
 	metricsPath = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
 	instances   = flag.String("instances", "", "Fastd instances to report metrics on, comma separated.")
 )
 
-// These are the structs necessary for unmarshalling the data that is being
-// received on fastds unix socket.
+// These are the structs necessary for unmarshalling the data that is being received on fastds unix socket.
 type PacketStatistics struct {
 	Count int `json:"packets"`
 	Bytes int `json:"bytes"`
