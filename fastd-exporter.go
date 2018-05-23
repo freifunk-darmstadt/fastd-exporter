@@ -21,6 +21,7 @@ var (
 	address     = flag.String("web.listen-address", ":9281", "Address on which to expose metrics and web interface.")
 	metricsPath = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
 	instances   = flag.String("instances", "", "Fastd instances to report metrics on, comma separated.")
+	peerMetrics = flag.Bool("metrics.perpeer", false, "Expose detailed metrics on each peer.")
 )
 
 // These are the structs necessary for unmarshalling the data that is being received on fastds unix socket.
@@ -192,24 +193,26 @@ func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
 	c <- prometheus.MustNewConstMetric(e.txDroppedPackets, prometheus.CounterValue, float64(data.Statistics.TX.Count))
 	c <- prometheus.MustNewConstMetric(e.txDroppedBytes, prometheus.CounterValue, float64(data.Statistics.TX_Dropped.Bytes))
 
-	for publicKey, peer := range data.Peers {
-		if peer.Connection == nil {
-			c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(0), publicKey, peer.Name)
-		} else {
-			c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(1), publicKey, peer.Name)
-			c <- prometheus.MustNewConstMetric(e.peerUptime, prometheus.GaugeValue, peer.Connection.Established/1000, publicKey, peer.Name)
+	if *peerMetrics {
+		for publicKey, peer := range data.Peers {
+			if peer.Connection == nil {
+				c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(0), publicKey, peer.Name)
+			} else {
+				c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(1), publicKey, peer.Name)
+				c <- prometheus.MustNewConstMetric(e.peerUptime, prometheus.GaugeValue, peer.Connection.Established/1000, publicKey, peer.Name)
 
-			c <- prometheus.MustNewConstMetric(e.peerRxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.RX.Count), publicKey, peer.Name)
-			c <- prometheus.MustNewConstMetric(e.peerRxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.RX.Bytes), publicKey, peer.Name)
-			c <- prometheus.MustNewConstMetric(e.peerRxReorderedPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.RX_Reordered.Count), publicKey, peer.Name)
-			c <- prometheus.MustNewConstMetric(e.peerRxReorderedBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.RX_Reordered.Bytes), publicKey, peer.Name)
+				c <- prometheus.MustNewConstMetric(e.peerRxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.RX.Count), publicKey, peer.Name)
+				c <- prometheus.MustNewConstMetric(e.peerRxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.RX.Bytes), publicKey, peer.Name)
+				c <- prometheus.MustNewConstMetric(e.peerRxReorderedPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.RX_Reordered.Count), publicKey, peer.Name)
+				c <- prometheus.MustNewConstMetric(e.peerRxReorderedBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.RX_Reordered.Bytes), publicKey, peer.Name)
 
-			c <- prometheus.MustNewConstMetric(e.peerTxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TX.Count), publicKey, peer.Name)
-			c <- prometheus.MustNewConstMetric(e.peerTxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TX.Bytes), publicKey, peer.Name)
-			c <- prometheus.MustNewConstMetric(e.peerTxDroppedPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Dropped.Count), publicKey, peer.Name)
-			c <- prometheus.MustNewConstMetric(e.peerTxDroppedBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Dropped.Bytes), publicKey, peer.Name)
-			c <- prometheus.MustNewConstMetric(e.peerTxErrorPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Error.Count), publicKey, peer.Name)
-			c <- prometheus.MustNewConstMetric(e.peerTxErrorBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Error.Bytes), publicKey, peer.Name)
+				c <- prometheus.MustNewConstMetric(e.peerTxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TX.Count), publicKey, peer.Name)
+				c <- prometheus.MustNewConstMetric(e.peerTxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TX.Bytes), publicKey, peer.Name)
+				c <- prometheus.MustNewConstMetric(e.peerTxDroppedPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Dropped.Count), publicKey, peer.Name)
+				c <- prometheus.MustNewConstMetric(e.peerTxDroppedBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Dropped.Bytes), publicKey, peer.Name)
+				c <- prometheus.MustNewConstMetric(e.peerTxErrorPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Error.Count), publicKey, peer.Name)
+				c <- prometheus.MustNewConstMetric(e.peerTxErrorBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Error.Bytes), publicKey, peer.Name)
+			}
 		}
 	}
 }

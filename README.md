@@ -1,6 +1,6 @@
 # fastd-exporter
 
-We are building a prometheus exporter for the [fastd](https://projects.universe-factory.net/projects/fastd/wiki)  vpn daemon.
+We are building a prometheus exporter for the [fastd](https://projects.universe-factory.net/projects/fastd/wiki) vpn daemon.
 
 We have a working version, but the metrics, and by extension their labels, are not stable yet.
 When they are we will very likely be tagging our first release.
@@ -16,7 +16,7 @@ $ go get github.com/freifunk-darmstadt/fastd-exporter
 and
 
 ```
-$ ./fastd-exporter --instance ffda
+$ ./fastd-exporter --instance ffda --metrics.perpeer
 ```
 
 The exporter will need read access to both the instances `fastd.conf` and `status socket`, keep that in mind.
