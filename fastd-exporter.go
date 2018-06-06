@@ -202,14 +202,14 @@ func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
 	peersUpTotal := 0
 
 	for publicKey, peer := range data.Peers {
-		if peer.Connection == nil {
-			if *peerMetrics {
-				c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(0), publicKey, peer.Name)
-			}
-		} else {
+		if peer.Connection != nil {
 			peersUpTotal += 1
+		}
 
-			if *peerMetrics {
+		if *peerMetrics {
+			if peer.Connection == nil {
+				c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(0), publicKey, peer.Name)
+			} else {
 				c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(1), publicKey, peer.Name)
 				c <- prometheus.MustNewConstMetric(e.peerUptime, prometheus.GaugeValue, peer.Connection.Established/1000, publicKey, peer.Name)
 
