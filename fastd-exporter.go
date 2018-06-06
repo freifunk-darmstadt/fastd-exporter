@@ -77,7 +77,7 @@ type PrometheusExporter struct {
 	txErrorPackets *prometheus.Desc
 	txErrorBytes   *prometheus.Desc
 
-	peerUpCount *prometheus.Desc
+	peersUpTotal *prometheus.Desc
 
 	peerUp     *prometheus.Desc
 	peerUptime *prometheus.Desc
@@ -126,7 +126,7 @@ func NewPrometheusExporter(ifName string, sockName string) PrometheusExporter {
 		txErrorPackets:   prometheus.NewDesc(c("tx_error_packets"), "tx error packets count", nil, l),
 		txErrorBytes:     prometheus.NewDesc(c("tx_error_bytes"), "tx error bytes count", nil, l),
 
-		peerUpCount:      prometheus.NewDesc(c("peer_up_total"), "number of connected peers", nil, l),
+		peersUpTotal:      prometheus.NewDesc(c("peer_up_total"), "number of connected peers", nil, l),
 
 		// per peer metrics
 		peerUp:     prometheus.NewDesc(c("peer_up"), "whether the peer is connected", p, l),
@@ -160,7 +160,7 @@ func (e PrometheusExporter) Describe(c chan<- *prometheus.Desc) {
 	c <- e.txDroppedPackets
 	c <- e.txDroppedBytes
 
-	c <- e.peerUpCount
+	c <- e.peersUpTotal
 
 	c <- e.peerUp
 	c <- e.peerUptime
@@ -199,7 +199,7 @@ func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
 	c <- prometheus.MustNewConstMetric(e.txDroppedPackets, prometheus.CounterValue, float64(data.Statistics.TX.Count))
 	c <- prometheus.MustNewConstMetric(e.txDroppedBytes, prometheus.CounterValue, float64(data.Statistics.TX_Dropped.Bytes))
 
-	peerUpCount := 0
+	peersUpTotal := 0
 
 	for publicKey, peer := range data.Peers {
 		if peer.Connection == nil {
@@ -207,7 +207,7 @@ func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
 				c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(0), publicKey, peer.Name)
 			}
 		} else {
-			peerUpCount += 1
+			peersUpTotal += 1
 
 			if *peerMetrics {
 				c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(1), publicKey, peer.Name)
@@ -228,7 +228,7 @@ func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
 		}
 	}
 
-	c <- prometheus.MustNewConstMetric(e.peerUpCount, prometheus.GaugeValue, float64(peerUpCount))
+	c <- prometheus.MustNewConstMetric(e.peersUpTotal, prometheus.GaugeValue, float64(peersUpTotal))
 }
 
 func data_from_sock(sock string) (Message, error) {
