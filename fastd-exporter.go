@@ -19,8 +19,9 @@ import (
 )
 
 var (
-	webListenAddress = flag.String("web.listen-address", ":9281", "Address on which to expose metrics and web interface.")
-	webMetricsPath   = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
+	configPathPattern = flag.String("config-path", "/etc/fastd/%s/fastd.conf", "Override fastd config path, %s will be replaced with the fastd instance name.")
+	webListenAddress  = flag.String("web.listen-address", ":9281", "Address on which to expose metrics and web interface.")
+	webMetricsPath    = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
 )
 
 // PacketStatistics These are the structs necessary for unmarshalling the data that is being received on fastds unix socket.
@@ -274,7 +275,7 @@ func parseConfig(instance string) (fastdConfig, error) {
 	 * Returns statusSocketPath, err
 	 * Errors when the configuration could not be read, no status socket is defined or the status socket does not exist
 	 */
-	data, err := ioutil.ReadFile(fmt.Sprintf("/etc/fastd/%s/fastd.conf", instance))
+	data, err := ioutil.ReadFile(fmt.Sprintf(*configPathPattern, instance))
 	if err != nil {
 		return fastdConfig{}, err
 	}
