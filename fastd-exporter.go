@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"time"
 
@@ -18,24 +19,23 @@ import (
 )
 
 var (
-	address     = flag.String("web.listen-address", ":9281", "Address on which to expose metrics and web interface.")
-	metricsPath = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
-	instances   = flag.String("instances", "", "Fastd instances to report metrics on, comma separated.")
-	peerMetrics = flag.Bool("metrics.perpeer", false, "Expose detailed metrics on each peer.")
+	enablePeerMetrics = flag.Bool("metrics.peers", false, "Expose detailed metrics on each peer.")
+	webListenAddress  = flag.String("web.listen-address", ":9281", "Address on which to expose metrics and web interface.")
+	webMetricsPath    = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
 )
 
-// These are the structs necessary for unmarshalling the data that is being received on fastds unix socket.
+// PacketStatistics These are the structs necessary for unmarshalling the data that is being received on fastds unix socket.
 type PacketStatistics struct {
 	Count int `json:"packets"`
 	Bytes int `json:"bytes"`
 }
 
 type Statistics struct {
-	RX           PacketStatistics `json:"rx"`
-	RX_Reordered PacketStatistics `json:"rx_reordered"`
-	TX           PacketStatistics `json:"tx"`
-	TX_Dropped   PacketStatistics `json:"tx_dropped"`
-	TX_Error     PacketStatistics `json:"tx_error"`
+	Rx          PacketStatistics `json:"rx"`
+	RxReordered PacketStatistics `json:"rx_reordered"`
+	Tx          PacketStatistics `json:"tx"`
+	TxDropped   PacketStatistics `json:"tx_dropped"`
+	TxError     PacketStatistics `json:"tx_error"`
 }
 
 type Message struct {
@@ -48,6 +48,7 @@ type Message struct {
 type Peer struct {
 	Name       string `json:"name"`
 	Address    string `json:"address"`
+	Interface  string `json:"interface"`
 	Connection *struct {
 		Established float64    `json:"established"`
 		Method      string     `json:"method"`
@@ -57,7 +58,7 @@ type Peer struct {
 }
 
 type PrometheusExporter struct {
-	SocketName string
+	statusSocketPath string
 
 	up     *prometheus.Desc
 	uptime *prometheus.Desc
@@ -95,109 +96,113 @@ type PrometheusExporter struct {
 	peerTxErrorBytes     *prometheus.Desc
 }
 
-func c(parts ...string) string {
+func prefixWrapper(parts ...string) string {
 	parts = append([]string{"fastd"}, parts...)
 	return strings.Join(parts, "_")
 }
 
-func NewPrometheusExporter(ifName string, sockName string) PrometheusExporter {
-	// persistent labels
-	l := prometheus.Labels{"interface": ifName}
-
-	// dynamic labels
-	p := []string{"public_key", "name"}
+func NewPrometheusExporter(instance string, sockName string) PrometheusExporter {
+	staticLabels := prometheus.Labels{
+		"fastd_instance": instance,
+	}
+	dynamicLabels := []string{
+		"public_key",
+		"name",
+		"interface",
+		"method",
+	}
 
 	return PrometheusExporter{
-		SocketName: sockName,
+		statusSocketPath: sockName,
 
 		// global metrics
-		up:     prometheus.NewDesc(c("up"), "whether the fastd process is up", nil, l),
-		uptime: prometheus.NewDesc(c("uptime_seconds"), "uptime of the fastd process", nil, l),
+		up:     prometheus.NewDesc(prefixWrapper("up"), "whether the fastd process is up", nil, staticLabels),
+		uptime: prometheus.NewDesc(prefixWrapper("uptime_seconds"), "uptime of the fastd process", nil, staticLabels),
 
-		rxPackets:          prometheus.NewDesc(c("rx_packets"), "rx packet count", nil, l),
-		rxBytes:            prometheus.NewDesc(c("rx_bytes"), "rx byte count", nil, l),
-		rxReorderedPackets: prometheus.NewDesc(c("rx_reordered_packets"), "rx reordered packets count", nil, l),
-		rxReorderedBytes:   prometheus.NewDesc(c("rx_reordered_bytes"), "rx reordered bytes count", nil, l),
+		rxPackets:          prometheus.NewDesc(prefixWrapper("rx_packets"), "rx packet count", nil, staticLabels),
+		rxBytes:            prometheus.NewDesc(prefixWrapper("rx_bytes"), "rx byte count", nil, staticLabels),
+		rxReorderedPackets: prometheus.NewDesc(prefixWrapper("rx_reordered_packets"), "rx reordered packets count", nil, staticLabels),
+		rxReorderedBytes:   prometheus.NewDesc(prefixWrapper("rx_reordered_bytes"), "rx reordered bytes count", nil, staticLabels),
 
-		txPackets:        prometheus.NewDesc(c("tx_packets"), "tx packet count", nil, l),
-		txBytes:          prometheus.NewDesc(c("tx_bytes"), "tx byte count", nil, l),
-		txDroppedPackets: prometheus.NewDesc(c("tx_dropped_packets"), "tx dropped packets count", nil, l),
-		txDroppedBytes:   prometheus.NewDesc(c("tx_dropped_bytes"), "tx dropped bytes count", nil, l),
-		txErrorPackets:   prometheus.NewDesc(c("tx_error_packets"), "tx error packets count", nil, l),
-		txErrorBytes:     prometheus.NewDesc(c("tx_error_bytes"), "tx error bytes count", nil, l),
+		txPackets:        prometheus.NewDesc(prefixWrapper("tx_packets"), "tx packet count", nil, staticLabels),
+		txBytes:          prometheus.NewDesc(prefixWrapper("tx_bytes"), "tx byte count", nil, staticLabels),
+		txDroppedPackets: prometheus.NewDesc(prefixWrapper("tx_dropped_packets"), "tx dropped packets count", nil, staticLabels),
+		txDroppedBytes:   prometheus.NewDesc(prefixWrapper("tx_dropped_bytes"), "tx dropped bytes count", nil, staticLabels),
+		txErrorPackets:   prometheus.NewDesc(prefixWrapper("tx_error_packets"), "tx error packets count", nil, staticLabels),
+		txErrorBytes:     prometheus.NewDesc(prefixWrapper("tx_error_bytes"), "tx error bytes count", nil, staticLabels),
 
-		peersUpTotal: prometheus.NewDesc(c("peers_up_total"), "number of connected peers", nil, l),
+		peersUpTotal: prometheus.NewDesc(prefixWrapper("peers_up_total"), "number of connected peers", nil, staticLabels),
 
 		// per peer metrics
-		peerUp:     prometheus.NewDesc(c("peer_up"), "whether the peer is connected", p, l),
-		peerUptime: prometheus.NewDesc(c("peer_uptime_seconds"), "peer session uptime", p, l),
+		peerUp:     prometheus.NewDesc(prefixWrapper("peer_up"), "whether the peer is connected", dynamicLabels, staticLabels),
+		peerUptime: prometheus.NewDesc(prefixWrapper("peer_uptime_seconds"), "peer session uptime", dynamicLabels, staticLabels),
 
-		peerRxPackets:          prometheus.NewDesc(c("peer_rx_packets"), "peer rx packets count", p, l),
-		peerRxBytes:            prometheus.NewDesc(c("peer_rx_bytes"), "peer rx bytes count", p, l),
-		peerRxReorderedPackets: prometheus.NewDesc(c("peer_rx_reordered_packets"), "peer rx reordered packets count", p, l),
-		peerRxReorderedBytes:   prometheus.NewDesc(c("peer_rx_reordered_bytes"), "peer rx reordered bytes count", p, l),
+		peerRxPackets:          prometheus.NewDesc(prefixWrapper("peer_rx_packets"), "peer rx packets count", dynamicLabels, staticLabels),
+		peerRxBytes:            prometheus.NewDesc(prefixWrapper("peer_rx_bytes"), "peer rx bytes count", dynamicLabels, staticLabels),
+		peerRxReorderedPackets: prometheus.NewDesc(prefixWrapper("peer_rx_reordered_packets"), "peer rx reordered packets count", dynamicLabels, staticLabels),
+		peerRxReorderedBytes:   prometheus.NewDesc(prefixWrapper("peer_rx_reordered_bytes"), "peer rx reordered bytes count", dynamicLabels, staticLabels),
 
-		peerTxPackets:        prometheus.NewDesc(c("peer_tx_packets"), "peer rx packet count", p, l),
-		peerTxBytes:          prometheus.NewDesc(c("peer_tx_bytes"), "peer rx bytes count", p, l),
-		peerTxDroppedPackets: prometheus.NewDesc(c("peer_tx_dropped_packets"), "peer tx dropped packets count", p, l),
-		peerTxDroppedBytes:   prometheus.NewDesc(c("peer_tx_dropped_bytes"), "peer tx dropped bytes count", p, l),
-		peerTxErrorPackets:   prometheus.NewDesc(c("peer_tx_error_packets"), "peer tx error packets count", p, l),
-		peerTxErrorBytes:     prometheus.NewDesc(c("peer_tx_error_bytes"), "peer tx error bytes count", p, l),
+		peerTxPackets:        prometheus.NewDesc(prefixWrapper("peer_tx_packets"), "peer rx packet count", dynamicLabels, staticLabels),
+		peerTxBytes:          prometheus.NewDesc(prefixWrapper("peer_tx_bytes"), "peer rx bytes count", dynamicLabels, staticLabels),
+		peerTxDroppedPackets: prometheus.NewDesc(prefixWrapper("peer_tx_dropped_packets"), "peer tx dropped packets count", dynamicLabels, staticLabels),
+		peerTxDroppedBytes:   prometheus.NewDesc(prefixWrapper("peer_tx_dropped_bytes"), "peer tx dropped bytes count", dynamicLabels, staticLabels),
+		peerTxErrorPackets:   prometheus.NewDesc(prefixWrapper("peer_tx_error_packets"), "peer tx error packets count", dynamicLabels, staticLabels),
+		peerTxErrorBytes:     prometheus.NewDesc(prefixWrapper("peer_tx_error_bytes"), "peer tx error bytes count", dynamicLabels, staticLabels),
 	}
 }
 
-func (e PrometheusExporter) Describe(c chan<- *prometheus.Desc) {
-	c <- e.up
-	c <- e.uptime
+func (exporter PrometheusExporter) Describe(channel chan<- *prometheus.Desc) {
+	channel <- exporter.up
+	channel <- exporter.uptime
 
-	c <- e.rxPackets
-	c <- e.rxBytes
-	c <- e.rxReorderedPackets
-	c <- e.rxReorderedBytes
+	channel <- exporter.rxPackets
+	channel <- exporter.rxBytes
+	channel <- exporter.rxReorderedPackets
+	channel <- exporter.rxReorderedBytes
 
-	c <- e.txPackets
-	c <- e.txBytes
-	c <- e.txDroppedPackets
-	c <- e.txDroppedBytes
+	channel <- exporter.txPackets
+	channel <- exporter.txBytes
+	channel <- exporter.txDroppedPackets
+	channel <- exporter.txDroppedBytes
 
-	c <- e.peersUpTotal
+	channel <- exporter.peersUpTotal
 
-	c <- e.peerUp
-	c <- e.peerUptime
+	channel <- exporter.peerUp
+	channel <- exporter.peerUptime
 
-	c <- e.peerRxPackets
-	c <- e.peerRxBytes
-	c <- e.peerRxReorderedPackets
-	c <- e.peerRxReorderedBytes
+	channel <- exporter.peerRxPackets
+	channel <- exporter.peerRxBytes
+	channel <- exporter.peerRxReorderedPackets
+	channel <- exporter.peerRxReorderedBytes
 
-	c <- e.peerTxPackets
-	c <- e.peerTxBytes
-	c <- e.peerTxDroppedPackets
-	c <- e.peerTxDroppedBytes
-	c <- e.peerTxErrorPackets
-	c <- e.peerTxErrorBytes
+	channel <- exporter.peerTxPackets
+	channel <- exporter.peerTxBytes
+	channel <- exporter.peerTxDroppedPackets
+	channel <- exporter.peerTxDroppedBytes
+	channel <- exporter.peerTxErrorPackets
+	channel <- exporter.peerTxErrorBytes
 }
 
-func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
-	data, err := data_from_sock(e.SocketName)
+func (exporter PrometheusExporter) Collect(channel chan<- prometheus.Metric) {
+	data, err := readFromStatusSocket(exporter.statusSocketPath)
 	if err != nil {
 		log.Print(err)
-		c <- prometheus.MustNewConstMetric(e.up, prometheus.GaugeValue, 0)
+		channel <- prometheus.MustNewConstMetric(exporter.up, prometheus.GaugeValue, 0)
 	} else {
-		c <- prometheus.MustNewConstMetric(e.up, prometheus.GaugeValue, 1)
+		channel <- prometheus.MustNewConstMetric(exporter.up, prometheus.GaugeValue, 1)
 	}
 
-	c <- prometheus.MustNewConstMetric(e.uptime, prometheus.GaugeValue, data.Uptime/1000)
+	channel <- prometheus.MustNewConstMetric(exporter.uptime, prometheus.GaugeValue, data.Uptime/1000)
 
-	c <- prometheus.MustNewConstMetric(e.rxPackets, prometheus.CounterValue, float64(data.Statistics.RX.Count))
-	c <- prometheus.MustNewConstMetric(e.rxBytes, prometheus.CounterValue, float64(data.Statistics.RX.Bytes))
-	c <- prometheus.MustNewConstMetric(e.rxReorderedPackets, prometheus.CounterValue, float64(data.Statistics.RX_Reordered.Count))
-	c <- prometheus.MustNewConstMetric(e.rxReorderedBytes, prometheus.CounterValue, float64(data.Statistics.RX_Reordered.Bytes))
+	channel <- prometheus.MustNewConstMetric(exporter.rxPackets, prometheus.CounterValue, float64(data.Statistics.Rx.Count))
+	channel <- prometheus.MustNewConstMetric(exporter.rxBytes, prometheus.CounterValue, float64(data.Statistics.Rx.Bytes))
+	channel <- prometheus.MustNewConstMetric(exporter.rxReorderedPackets, prometheus.CounterValue, float64(data.Statistics.RxReordered.Count))
+	channel <- prometheus.MustNewConstMetric(exporter.rxReorderedBytes, prometheus.CounterValue, float64(data.Statistics.RxReordered.Bytes))
 
-	c <- prometheus.MustNewConstMetric(e.txPackets, prometheus.CounterValue, float64(data.Statistics.TX.Count))
-	c <- prometheus.MustNewConstMetric(e.txBytes, prometheus.CounterValue, float64(data.Statistics.TX.Bytes))
-	c <- prometheus.MustNewConstMetric(e.txDroppedPackets, prometheus.CounterValue, float64(data.Statistics.TX.Count))
-	c <- prometheus.MustNewConstMetric(e.txDroppedBytes, prometheus.CounterValue, float64(data.Statistics.TX_Dropped.Bytes))
+	channel <- prometheus.MustNewConstMetric(exporter.txPackets, prometheus.CounterValue, float64(data.Statistics.Tx.Count))
+	channel <- prometheus.MustNewConstMetric(exporter.txBytes, prometheus.CounterValue, float64(data.Statistics.Tx.Bytes))
+	channel <- prometheus.MustNewConstMetric(exporter.txDroppedPackets, prometheus.CounterValue, float64(data.Statistics.Tx.Count))
+	channel <- prometheus.MustNewConstMetric(exporter.txDroppedBytes, prometheus.CounterValue, float64(data.Statistics.TxDropped.Bytes))
 
 	peersUpTotal := 0
 
@@ -206,37 +211,52 @@ func (e PrometheusExporter) Collect(c chan<- prometheus.Metric) {
 			peersUpTotal += 1
 		}
 
-		if *peerMetrics {
+		if *enablePeerMetrics {
+			peerName := peer.Name
+
+			interfaceName := data.Interface
+			if interfaceName == "" {
+				interfaceName = peer.Interface
+			}
+
+			method := ""
+			if peer.Connection != nil {
+				method = peer.Connection.Method
+			}
+
 			if peer.Connection == nil {
-				c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(0), publicKey, peer.Name)
+				channel <- prometheus.MustNewConstMetric(exporter.peerUp, prometheus.GaugeValue, float64(0), publicKey, peerName, interfaceName, method)
 			} else {
-				c <- prometheus.MustNewConstMetric(e.peerUp, prometheus.GaugeValue, float64(1), publicKey, peer.Name)
-				c <- prometheus.MustNewConstMetric(e.peerUptime, prometheus.GaugeValue, peer.Connection.Established/1000, publicKey, peer.Name)
 
-				c <- prometheus.MustNewConstMetric(e.peerRxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.RX.Count), publicKey, peer.Name)
-				c <- prometheus.MustNewConstMetric(e.peerRxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.RX.Bytes), publicKey, peer.Name)
-				c <- prometheus.MustNewConstMetric(e.peerRxReorderedPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.RX_Reordered.Count), publicKey, peer.Name)
-				c <- prometheus.MustNewConstMetric(e.peerRxReorderedBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.RX_Reordered.Bytes), publicKey, peer.Name)
+				channel <- prometheus.MustNewConstMetric(exporter.peerUp, prometheus.GaugeValue, float64(1), publicKey, peerName, interfaceName, method)
+				channel <- prometheus.MustNewConstMetric(exporter.peerUptime, prometheus.GaugeValue, peer.Connection.Established/1000, publicKey, peerName, interfaceName, method)
 
-				c <- prometheus.MustNewConstMetric(e.peerTxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TX.Count), publicKey, peer.Name)
-				c <- prometheus.MustNewConstMetric(e.peerTxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TX.Bytes), publicKey, peer.Name)
-				c <- prometheus.MustNewConstMetric(e.peerTxDroppedPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Dropped.Count), publicKey, peer.Name)
-				c <- prometheus.MustNewConstMetric(e.peerTxDroppedBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Dropped.Bytes), publicKey, peer.Name)
-				c <- prometheus.MustNewConstMetric(e.peerTxErrorPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Error.Count), publicKey, peer.Name)
-				c <- prometheus.MustNewConstMetric(e.peerTxErrorBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TX_Error.Bytes), publicKey, peer.Name)
+				channel <- prometheus.MustNewConstMetric(exporter.peerRxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.Rx.Count), publicKey, peerName, interfaceName, method)
+				channel <- prometheus.MustNewConstMetric(exporter.peerRxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.Rx.Bytes), publicKey, peerName, interfaceName, method)
+				channel <- prometheus.MustNewConstMetric(exporter.peerRxReorderedPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.RxReordered.Count), publicKey, peerName, interfaceName, method)
+				channel <- prometheus.MustNewConstMetric(exporter.peerRxReorderedBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.RxReordered.Bytes), publicKey, peerName, interfaceName, method)
+
+				channel <- prometheus.MustNewConstMetric(exporter.peerTxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.Tx.Count), publicKey, peerName, interfaceName, method)
+				channel <- prometheus.MustNewConstMetric(exporter.peerTxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.Tx.Bytes), publicKey, peerName, interfaceName, method)
+				channel <- prometheus.MustNewConstMetric(exporter.peerTxDroppedPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TxDropped.Count), publicKey, peerName, interfaceName, method)
+				channel <- prometheus.MustNewConstMetric(exporter.peerTxDroppedBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TxDropped.Bytes), publicKey, peerName, interfaceName, method)
+				channel <- prometheus.MustNewConstMetric(exporter.peerTxErrorPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TxError.Count), publicKey, peerName, interfaceName, method)
+				channel <- prometheus.MustNewConstMetric(exporter.peerTxErrorBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TxError.Bytes), publicKey, peerName, interfaceName, method)
 			}
 		}
 	}
 
-	c <- prometheus.MustNewConstMetric(e.peersUpTotal, prometheus.GaugeValue, float64(peersUpTotal))
+	channel <- prometheus.MustNewConstMetric(exporter.peersUpTotal, prometheus.GaugeValue, float64(peersUpTotal))
 }
 
-func data_from_sock(sock string) (Message, error) {
+func readFromStatusSocket(sock string) (Message, error) {
 	conn, err := net.DialTimeout("unix", sock, 2*time.Second)
 	if err != nil {
 		return Message{}, err
 	}
-	defer conn.Close()
+	defer func(conn net.Conn) {
+		_ = conn.Close()
+	}(conn)
 
 	decoder := json.NewDecoder(conn)
 	msg := Message{}
@@ -248,62 +268,68 @@ func data_from_sock(sock string) (Message, error) {
 	return msg, nil
 }
 
-func config_from_instance(instance string) (string, string, error) {
+type fastdConfig struct {
+	statusSocketPath string
+}
+
+func parseConfig(instance string) (fastdConfig, error) {
 	/*
-	 * Parse fastds configuration and extract
-	 *  a) interface     -> which is exposed as a label to identify the instance
-	 *  b) status socket -> where we can extract status information for the instance
+	 * Parses a fastd configuration and extracts the status socket, where the exporter
+	 * will pull metrics from.
 	 *
-	 * Returns ifNamme, sockPath, err
-	 * Errors when either configuration key is missing or the config file could not be read.
+	 * Returns statusSocketPath, err
+	 * Errors when the configuration could not be read, no status socket is defined or the status socket does not exist
 	 */
 	data, err := ioutil.ReadFile(fmt.Sprintf("/etc/fastd/%s/fastd.conf", instance))
 	if err != nil {
-		return "", "", err
+		return fastdConfig{}, err
 	}
 
-	sockPath_pattern := regexp.MustCompile("status socket \"([^\"]+)\";")
-	sockPath := sockPath_pattern.FindSubmatch(data)
+	statusSocketPattern := regexp.MustCompile("status socket \"([^\"]+)\";")
+	match := statusSocketPattern.FindSubmatch(data)
+	if len(match) == 0 {
+		return fastdConfig{}, errors.New(fmt.Sprintf("Instance %s is missing 'status socket' declaration.", instance))
+	}
 
-	ifName_pattern := regexp.MustCompile("interface \"([^\"]+)\";")
-	ifName := ifName_pattern.FindSubmatch(data)[1]
-
-	if len(sockPath) > 1 && len(ifName) > 1 {
-		return string(ifName), string(sockPath[1]), nil
+	statusSocketPath := string(match[1])
+	if _, err := os.Stat(statusSocketPath); err == nil {
+		return fastdConfig{statusSocketPath}, nil
 	} else {
-		return "", "", errors.New(fmt.Sprintf("Instance %s is missing one of ('status socket', 'interface') declaration.", instance))
+		return fastdConfig{}, errors.New(fmt.Sprintf("Status socket at %s does not exist. Is the fastd instance %s up?.", statusSocketPath, instance))
 	}
 }
 
 func main() {
 	flag.Parse()
 
-	if *instances == "" {
-		log.Fatal("No instance given, exiting.")
+	instances := flag.Args()
+	if len(instances) == 0 {
+		log.Fatal("No instances specified, aborting.")
 	}
 
-	instances := strings.Split(*instances, ",")
-
 	for i := 0; i < len(instances); i++ {
-		ifName, sockPath, err := config_from_instance(instances[i])
+		config, err := parseConfig(instances[i])
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Printf("Reading fastd data for %v from %v", ifName, sockPath)
-		go prometheus.MustRegister(NewPrometheusExporter(ifName, sockPath))
+		log.Printf("Reading fastd data for %v from %v", instances[i], config.statusSocketPath)
+		go prometheus.MustRegister(NewPrometheusExporter(instances[i], config.statusSocketPath))
 	}
 
 	// Expose the registered metrics via HTTP.
-	http.Handle(*metricsPath, promhttp.Handler())
+	http.Handle(*webMetricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html>
-		<head><title>fastd exporter</title></head>
-		<body>
-		<h1>fastd exporter</h1>
-		<p><a href="` + *metricsPath + `">Metrics</a></p>
-		</body>
-		</html>`))
+		_, err := w.Write([]byte(`<html>
+				<head><title>fastd exporter</title></head>
+				<body>
+				<h1>fastd exporter</h1>
+				<p><a href="` + *webMetricsPath + `">Metrics</a></p>
+				</body>
+				</html>`))
+		if err != nil {
+			return
+		}
 	})
 
-	log.Fatal(http.ListenAndServe(*address, nil))
+	log.Fatal(http.ListenAndServe(*webListenAddress, nil))
 }
