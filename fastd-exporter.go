@@ -221,28 +221,26 @@ func (exporter PrometheusExporter) Collect(channel chan<- prometheus.Metric) {
 		method := ""
 		ipAddrFamily := 6
 
-		if peer.Connection != nil {
-			peersUpTotal += 1
-			method = peer.Connection.Method
-		}
-
 		if interfaceName == "" {
 			interfaceName = peer.Interface
-		}
-
-		peerIp, _, _ := net.SplitHostPort(peer.Address)
-		if strings.Contains(peerIp, ".") {
-			ipAddrFamily = 4
-		}
-
-		asnlookup, err := ipisp.LookupIP(context.Background(), net.ParseIP(peerIp))
-		if err != nil {
-			log.Print(err)
 		}
 
 		if peer.Connection == nil {
 			channel <- prometheus.MustNewConstMetric(exporter.peerUp, prometheus.GaugeValue, float64(0), publicKey, peerName, interfaceName, method)
 		} else {
+			peersUpTotal += 1
+
+			method = peer.Connection.Method
+
+			peerIp, _, _ := net.SplitHostPort(peer.Address)
+			if strings.Contains(peerIp, ".") {
+				ipAddrFamily = 4
+			}
+
+			asnlookup, err := ipisp.LookupIP(context.Background(), net.ParseIP(peerIp))
+			if err != nil {
+				log.Print(err)
+			}
 
 			channel <- prometheus.MustNewConstMetric(exporter.peerUp, prometheus.GaugeValue, float64(1), publicKey, peerName, interfaceName, method)
 			channel <- prometheus.MustNewConstMetric(exporter.peerUptime, prometheus.GaugeValue, peer.Connection.Established/1000, publicKey, peerName, interfaceName, method)
