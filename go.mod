@@ -2,7 +2,10 @@ module git.darmstadt.ccc.de/ffda/infra/fastd-exporter
 
 go 1.17
 
-require github.com/prometheus/client_golang v1.12.1
+require (
+	github.com/ammario/ipisp/v2 v2.0.0
+	github.com/prometheus/client_golang v1.12.1
+)
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect

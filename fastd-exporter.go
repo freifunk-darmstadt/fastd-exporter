@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -15,6 +16,7 @@ import (
 
 	"strings"
 
+	"github.com/ammario/ipisp/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -84,6 +86,7 @@ type PrometheusExporter struct {
 	peerUp           *prometheus.Desc
 	peerUptime       *prometheus.Desc
 	peerIpAddrFamily *prometheus.Desc
+	peerAsn          *prometheus.Desc
 
 	peerRxPackets          *prometheus.Desc
 	peerRxBytes            *prometheus.Desc
@@ -139,6 +142,7 @@ func NewPrometheusExporter(instance string, sockName string) PrometheusExporter 
 		peerUp:           prometheus.NewDesc(prefixWrapper("peer_up"), "whether the peer is connected", dynamicLabels, staticLabels),
 		peerUptime:       prometheus.NewDesc(prefixWrapper("peer_uptime_seconds"), "peer session uptime", dynamicLabels, staticLabels),
 		peerIpAddrFamily: prometheus.NewDesc(prefixWrapper("peer_ipaddr_family"), "IP address family the peer is using to connect", dynamicLabels, staticLabels),
+		peerAsn:          prometheus.NewDesc(prefixWrapper("peer_asn"), "ASN the peer is connecting from", dynamicLabels, staticLabels),
 
 		peerRxPackets:          prometheus.NewDesc(prefixWrapper("peer_rx_packets"), "peer rx packets count", dynamicLabels, staticLabels),
 		peerRxBytes:            prometheus.NewDesc(prefixWrapper("peer_rx_bytes"), "peer rx bytes count", dynamicLabels, staticLabels),
@@ -173,6 +177,7 @@ func (exporter PrometheusExporter) Describe(channel chan<- *prometheus.Desc) {
 	channel <- exporter.peerUp
 	channel <- exporter.peerUptime
 	channel <- exporter.peerIpAddrFamily
+	channel <- exporter.peerAsn
 
 	channel <- exporter.peerRxPackets
 	channel <- exporter.peerRxBytes
@@ -225,8 +230,14 @@ func (exporter PrometheusExporter) Collect(channel chan<- prometheus.Metric) {
 			interfaceName = peer.Interface
 		}
 
-		if strings.Contains(peer.Address, ".") {
+		peerIp, _, _ := net.SplitHostPort(peer.Address)
+		if strings.Contains(peerIp, ".") {
 			ipAddrFamily = 4
+		}
+
+		asnlookup, err := ipisp.LookupIP(context.Background(), net.ParseIP(peerIp))
+		if err != nil {
+			log.Print(err)
 		}
 
 		if peer.Connection == nil {
@@ -236,6 +247,7 @@ func (exporter PrometheusExporter) Collect(channel chan<- prometheus.Metric) {
 			channel <- prometheus.MustNewConstMetric(exporter.peerUp, prometheus.GaugeValue, float64(1), publicKey, peerName, interfaceName, method)
 			channel <- prometheus.MustNewConstMetric(exporter.peerUptime, prometheus.GaugeValue, peer.Connection.Established/1000, publicKey, peerName, interfaceName, method)
 			channel <- prometheus.MustNewConstMetric(exporter.peerIpAddrFamily, prometheus.GaugeValue, float64(ipAddrFamily), publicKey, peerName, interfaceName, method)
+			channel <- prometheus.MustNewConstMetric(exporter.peerAsn, prometheus.GaugeValue, float64(asnlookup.ASN), publicKey, peerName, interfaceName, method)
 
 			channel <- prometheus.MustNewConstMetric(exporter.peerRxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.Rx.Count), publicKey, peerName, interfaceName, method)
 			channel <- prometheus.MustNewConstMetric(exporter.peerRxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.Rx.Bytes), publicKey, peerName, interfaceName, method)
