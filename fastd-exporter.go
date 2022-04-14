@@ -237,15 +237,18 @@ func (exporter PrometheusExporter) Collect(channel chan<- prometheus.Metric) {
 				ipAddrFamily = 4
 			}
 
+			peerAsn := float64(0)
 			asnlookup, err := ipisp.LookupIP(context.Background(), net.ParseIP(peerIp))
 			if err != nil {
 				log.Print(err)
+			} else {
+				peerAsn = float64(asnlookup.ASN)
 			}
 
 			channel <- prometheus.MustNewConstMetric(exporter.peerUp, prometheus.GaugeValue, float64(1), publicKey, peerName, interfaceName, method)
 			channel <- prometheus.MustNewConstMetric(exporter.peerUptime, prometheus.GaugeValue, peer.Connection.Established/1000, publicKey, peerName, interfaceName, method)
 			channel <- prometheus.MustNewConstMetric(exporter.peerIpAddrFamily, prometheus.GaugeValue, float64(ipAddrFamily), publicKey, peerName, interfaceName, method)
-			channel <- prometheus.MustNewConstMetric(exporter.peerAsn, prometheus.GaugeValue, float64(asnlookup.ASN), publicKey, peerName, interfaceName, method)
+			channel <- prometheus.MustNewConstMetric(exporter.peerAsn, prometheus.GaugeValue, peerAsn, publicKey, peerName, interfaceName, method)
 
 			channel <- prometheus.MustNewConstMetric(exporter.peerRxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.Rx.Count), publicKey, peerName, interfaceName, method)
 			channel <- prometheus.MustNewConstMetric(exporter.peerRxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.Rx.Bytes), publicKey, peerName, interfaceName, method)
