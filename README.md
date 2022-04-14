@@ -15,6 +15,8 @@ We are happy to discuss the fastd-exporter with you on IRC and Matrix
 
 ## Install
 
+Download the latest [release artifact](https://git.darmstadt.ccc.de/ffda/infra//fastd-exporter/-/jobs/artifacts/master/download?job=release) or build it yourself:
+
 ```console
 go get git.darmstadt.ccc.de/ffda/infra/fastd-exporter
 ```
