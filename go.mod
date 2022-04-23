@@ -5,6 +5,7 @@ go 1.17
 require (
 	github.com/ammario/ipisp/v2 v2.0.0
 	github.com/prometheus/client_golang v1.12.1
+	github.com/simplesurance/go-ip-anonymizer v0.0.0-20200429124537-35a880f8e87d
 )
 
 require (
