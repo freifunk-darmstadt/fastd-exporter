@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"time"
 
 	"strings"
@@ -84,10 +85,9 @@ type PrometheusExporter struct {
 
 	peersUpTotal *prometheus.Desc
 
-	peerUp           *prometheus.Desc
-	peerUptime       *prometheus.Desc
-	peerIpAddrFamily *prometheus.Desc
-	peerAsn          *prometheus.Desc
+	peerUp     *prometheus.Desc
+	peerUptime *prometheus.Desc
+	peerInfo   *prometheus.Desc
 
 	peerRxPackets          *prometheus.Desc
 	peerRxBytes            *prometheus.Desc
@@ -118,6 +118,11 @@ func NewPrometheusExporter(instance string, sockName string) PrometheusExporter 
 		"method",
 	}
 
+	dynamicPeerInfoLabels := append(dynamicLabels, []string{
+		"asn",
+		"ipaddr_family",
+	}...)
+
 	return PrometheusExporter{
 		statusSocketPath: sockName,
 
@@ -140,10 +145,10 @@ func NewPrometheusExporter(instance string, sockName string) PrometheusExporter 
 		peersUpTotal: prometheus.NewDesc(prefixWrapper("peers_up_total"), "number of connected peers", nil, staticLabels),
 
 		// per peer metrics
-		peerUp:           prometheus.NewDesc(prefixWrapper("peer_up"), "whether the peer is connected", dynamicLabels, staticLabels),
-		peerUptime:       prometheus.NewDesc(prefixWrapper("peer_uptime_seconds"), "peer session uptime", dynamicLabels, staticLabels),
-		peerIpAddrFamily: prometheus.NewDesc(prefixWrapper("peer_ipaddr_family"), "IP address family the peer is using to connect", dynamicLabels, staticLabels),
-		peerAsn:          prometheus.NewDesc(prefixWrapper("peer_asn"), "ASN the peer is connecting from", dynamicLabels, staticLabels),
+		peerUp:     prometheus.NewDesc(prefixWrapper("peer_up"), "whether the peer is connected", dynamicLabels, staticLabels),
+		peerUptime: prometheus.NewDesc(prefixWrapper("peer_uptime_seconds"), "peer session uptime", dynamicLabels, staticLabels),
+
+		peerInfo: prometheus.NewDesc(prefixWrapper("peer_info"), "general info about a peer (ASN, IP Version)", dynamicPeerInfoLabels, staticLabels),
 
 		peerRxPackets:          prometheus.NewDesc(prefixWrapper("peer_rx_packets"), "peer rx packets count", dynamicLabels, staticLabels),
 		peerRxBytes:            prometheus.NewDesc(prefixWrapper("peer_rx_bytes"), "peer rx bytes count", dynamicLabels, staticLabels),
@@ -177,8 +182,7 @@ func (exporter PrometheusExporter) Describe(channel chan<- *prometheus.Desc) {
 
 	channel <- exporter.peerUp
 	channel <- exporter.peerUptime
-	channel <- exporter.peerIpAddrFamily
-	channel <- exporter.peerAsn
+	channel <- exporter.peerInfo
 
 	channel <- exporter.peerRxPackets
 	channel <- exporter.peerRxBytes
@@ -225,7 +229,7 @@ func (exporter PrometheusExporter) Collect(channel chan<- prometheus.Metric) {
 		peerName := peer.Name
 		interfaceName := data.Interface
 		method := ""
-		ipAddrFamily := 6
+		ipAddrFamily := "IPv6"
 
 		if interfaceName == "" {
 			interfaceName = peer.Interface
@@ -240,7 +244,7 @@ func (exporter PrometheusExporter) Collect(channel chan<- prometheus.Metric) {
 
 			peerIp, _, _ := net.SplitHostPort(peer.Address)
 			if strings.Contains(peerIp, ".") {
-				ipAddrFamily = 4
+				ipAddrFamily = "IPv4"
 			}
 
 			anonIP, err := anonymize.IPString(peerIp)
@@ -248,18 +252,19 @@ func (exporter PrometheusExporter) Collect(channel chan<- prometheus.Metric) {
 				peerIp = anonIP
 			}
 
-			peerAsn := float64(0)
+			peerAsn := ""
+
 			asnlookup, err := ipisp.LookupIP(context.Background(), net.ParseIP(peerIp))
 			if err != nil {
 				log.Print(err)
 			} else {
-				peerAsn = float64(asnlookup.ASN)
+				peerAsn = strconv.Itoa(int(asnlookup.ASN))
 			}
 
 			channel <- prometheus.MustNewConstMetric(exporter.peerUp, prometheus.GaugeValue, float64(1), publicKey, peerName, interfaceName, method)
 			channel <- prometheus.MustNewConstMetric(exporter.peerUptime, prometheus.GaugeValue, peer.Connection.Established/1000, publicKey, peerName, interfaceName, method)
-			channel <- prometheus.MustNewConstMetric(exporter.peerIpAddrFamily, prometheus.GaugeValue, float64(ipAddrFamily), publicKey, peerName, interfaceName, method)
-			channel <- prometheus.MustNewConstMetric(exporter.peerAsn, prometheus.GaugeValue, peerAsn, publicKey, peerName, interfaceName, method)
+
+			channel <- prometheus.MustNewConstMetric(exporter.peerInfo, prometheus.GaugeValue, float64(1), publicKey, peerName, interfaceName, method, peerAsn, ipAddrFamily)
 
 			channel <- prometheus.MustNewConstMetric(exporter.peerRxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.Rx.Count), publicKey, peerName, interfaceName, method)
 			channel <- prometheus.MustNewConstMetric(exporter.peerRxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.Rx.Bytes), publicKey, peerName, interfaceName, method)
