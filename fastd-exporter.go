@@ -115,10 +115,10 @@ func NewPrometheusExporter(instance string, sockName string) PrometheusExporter 
 		"public_key",
 		"name",
 		"interface",
-		"method",
 	}
 
 	dynamicPeerInfoLabels := append(dynamicLabels, []string{
+		"method",
 		"asn",
 		"ipaddr_family",
 	}...)
@@ -148,7 +148,7 @@ func NewPrometheusExporter(instance string, sockName string) PrometheusExporter 
 		peerUp:     prometheus.NewDesc(prefixWrapper("peer_up"), "whether the peer is connected", dynamicLabels, staticLabels),
 		peerUptime: prometheus.NewDesc(prefixWrapper("peer_uptime_seconds"), "peer session uptime", dynamicLabels, staticLabels),
 
-		peerInfo: prometheus.NewDesc(prefixWrapper("peer_info"), "general info about a peer (ASN, IP Version)", dynamicPeerInfoLabels, staticLabels),
+		peerInfo: prometheus.NewDesc(prefixWrapper("peer_info"), "general info about a peer (connection method, ASN, IP Version)", dynamicPeerInfoLabels, staticLabels),
 
 		peerRxPackets:          prometheus.NewDesc(prefixWrapper("peer_rx_packets"), "peer rx packets count", dynamicLabels, staticLabels),
 		peerRxBytes:            prometheus.NewDesc(prefixWrapper("peer_rx_bytes"), "peer rx bytes count", dynamicLabels, staticLabels),
@@ -236,7 +236,7 @@ func (exporter PrometheusExporter) Collect(channel chan<- prometheus.Metric) {
 		}
 
 		if peer.Connection == nil {
-			channel <- prometheus.MustNewConstMetric(exporter.peerUp, prometheus.GaugeValue, float64(0), publicKey, peerName, interfaceName, method)
+			channel <- prometheus.MustNewConstMetric(exporter.peerUp, prometheus.GaugeValue, float64(0), publicKey, peerName, interfaceName)
 		} else {
 			peersUpTotal += 1
 
@@ -261,22 +261,22 @@ func (exporter PrometheusExporter) Collect(channel chan<- prometheus.Metric) {
 				peerAsn = strconv.Itoa(int(asnlookup.ASN))
 			}
 
-			channel <- prometheus.MustNewConstMetric(exporter.peerUp, prometheus.GaugeValue, float64(1), publicKey, peerName, interfaceName, method)
-			channel <- prometheus.MustNewConstMetric(exporter.peerUptime, prometheus.GaugeValue, peer.Connection.Established/1000, publicKey, peerName, interfaceName, method)
+			channel <- prometheus.MustNewConstMetric(exporter.peerUp, prometheus.GaugeValue, float64(1), publicKey, peerName, interfaceName)
+			channel <- prometheus.MustNewConstMetric(exporter.peerUptime, prometheus.GaugeValue, peer.Connection.Established/1000, publicKey, peerName, interfaceName)
 
 			channel <- prometheus.MustNewConstMetric(exporter.peerInfo, prometheus.GaugeValue, float64(1), publicKey, peerName, interfaceName, method, peerAsn, ipAddrFamily)
 
-			channel <- prometheus.MustNewConstMetric(exporter.peerRxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.Rx.Count), publicKey, peerName, interfaceName, method)
-			channel <- prometheus.MustNewConstMetric(exporter.peerRxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.Rx.Bytes), publicKey, peerName, interfaceName, method)
-			channel <- prometheus.MustNewConstMetric(exporter.peerRxReorderedPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.RxReordered.Count), publicKey, peerName, interfaceName, method)
-			channel <- prometheus.MustNewConstMetric(exporter.peerRxReorderedBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.RxReordered.Bytes), publicKey, peerName, interfaceName, method)
+			channel <- prometheus.MustNewConstMetric(exporter.peerRxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.Rx.Count), publicKey, peerName, interfaceName)
+			channel <- prometheus.MustNewConstMetric(exporter.peerRxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.Rx.Bytes), publicKey, peerName, interfaceName)
+			channel <- prometheus.MustNewConstMetric(exporter.peerRxReorderedPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.RxReordered.Count), publicKey, peerName, interfaceName)
+			channel <- prometheus.MustNewConstMetric(exporter.peerRxReorderedBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.RxReordered.Bytes), publicKey, peerName, interfaceName)
 
-			channel <- prometheus.MustNewConstMetric(exporter.peerTxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.Tx.Count), publicKey, peerName, interfaceName, method)
-			channel <- prometheus.MustNewConstMetric(exporter.peerTxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.Tx.Bytes), publicKey, peerName, interfaceName, method)
-			channel <- prometheus.MustNewConstMetric(exporter.peerTxDroppedPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TxDropped.Count), publicKey, peerName, interfaceName, method)
-			channel <- prometheus.MustNewConstMetric(exporter.peerTxDroppedBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TxDropped.Bytes), publicKey, peerName, interfaceName, method)
-			channel <- prometheus.MustNewConstMetric(exporter.peerTxErrorPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TxError.Count), publicKey, peerName, interfaceName, method)
-			channel <- prometheus.MustNewConstMetric(exporter.peerTxErrorBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TxError.Bytes), publicKey, peerName, interfaceName, method)
+			channel <- prometheus.MustNewConstMetric(exporter.peerTxPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.Tx.Count), publicKey, peerName, interfaceName)
+			channel <- prometheus.MustNewConstMetric(exporter.peerTxBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.Tx.Bytes), publicKey, peerName, interfaceName)
+			channel <- prometheus.MustNewConstMetric(exporter.peerTxDroppedPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TxDropped.Count), publicKey, peerName, interfaceName)
+			channel <- prometheus.MustNewConstMetric(exporter.peerTxDroppedBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TxDropped.Bytes), publicKey, peerName, interfaceName)
+			channel <- prometheus.MustNewConstMetric(exporter.peerTxErrorPackets, prometheus.CounterValue, float64(peer.Connection.Statistics.TxError.Count), publicKey, peerName, interfaceName)
+			channel <- prometheus.MustNewConstMetric(exporter.peerTxErrorBytes, prometheus.CounterValue, float64(peer.Connection.Statistics.TxError.Bytes), publicKey, peerName, interfaceName)
 		}
 	}
 
