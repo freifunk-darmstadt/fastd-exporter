@@ -19,6 +19,7 @@ import (
 	"github.com/ammario/ipisp/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/simplesurance/go-ip-anonymizer/ipanonymizer"
 )
 
 var (
@@ -215,6 +216,11 @@ func (exporter PrometheusExporter) Collect(channel chan<- prometheus.Metric) {
 
 	peersUpTotal := 0
 
+	anonymize := ipanonymizer.NewWithMask(
+		net.CIDRMask(24, 32),
+		net.CIDRMask(48, 128),
+	)
+
 	for publicKey, peer := range data.Peers {
 		peerName := peer.Name
 		interfaceName := data.Interface
@@ -235,6 +241,11 @@ func (exporter PrometheusExporter) Collect(channel chan<- prometheus.Metric) {
 			peerIp, _, _ := net.SplitHostPort(peer.Address)
 			if strings.Contains(peerIp, ".") {
 				ipAddrFamily = 4
+			}
+
+			anonIP, err := anonymize.IPString(peerIp)
+			if err == nil {
+				peerIp = anonIP
 			}
 
 			peerAsn := float64(0)
