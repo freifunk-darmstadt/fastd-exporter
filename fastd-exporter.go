@@ -24,9 +24,10 @@ import (
 )
 
 var (
-	configPathPattern = flag.String("config-path", "/etc/fastd/%s/fastd.conf", "Override fastd config path, %s will be replaced with the fastd instance name.")
-	webListenAddress  = flag.String("web.listen-address", ":9281", "Address on which to expose metrics and web interface.")
-	webMetricsPath    = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
+	configPathPattern  = flag.String("config-path", "/etc/fastd/%s/fastd.conf", "Override fastd config path, %s will be replaced with the fastd instance name.")
+	webListenAddress   = flag.String("web.listen-address", ":9281", "Address on which to expose metrics and web interface.")
+	webMetricsPath     = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
+	ipAsnLookupTimeout = flag.Int("ip-asn-lookup.timeout", 300, "milliseconds to wait for ip->asn lookup to finish")
 )
 
 // PacketStatistics These are the structs necessary for unmarshalling the data that is being received on fastds unix socket.
@@ -254,7 +255,11 @@ func (exporter PrometheusExporter) Collect(channel chan<- prometheus.Metric) {
 
 			peerAsn := ""
 
-			asnlookup, err := ipisp.LookupIP(context.Background(), net.ParseIP(peerIp))
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*ipAsnLookupTimeout)*time.Millisecond)
+
+			defer cancel()
+
+			asnlookup, err := ipisp.LookupIP(ctx, net.ParseIP(peerIp))
 			if err != nil {
 				log.Print(err)
 			} else {
