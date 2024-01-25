@@ -1,2 +1,4 @@
 fastd-exporter
 .idea/
+contrib/fastd-*.sock
+contrib/fastd-*.sock.lock
