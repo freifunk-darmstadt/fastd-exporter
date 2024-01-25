@@ -326,10 +326,14 @@ func parseConfig(instance string) (fastdConfig, error) {
 	}
 
 	statusSocketPath := string(match[1])
+	return checkSocket(statusSocketPath)
+}
+
+func checkSocket(statusSocketPath string) (fastdConfig, error) {
 	if _, err := os.Stat(statusSocketPath); err == nil {
 		return fastdConfig{statusSocketPath}, nil
 	} else {
-		return fastdConfig{}, errors.New(fmt.Sprintf("Status socket at %s does not exist. Is the fastd instance %s up?.", statusSocketPath, instance))
+		return fastdConfig{}, errors.New(fmt.Sprintf("Status socket at %s does not exist. Is the fastd instance up?.", statusSocketPath))
 	}
 }
 
@@ -341,13 +345,32 @@ func main() {
 		log.Fatal("No instances specified, aborting.")
 	}
 
+	instancePattern := regexp.MustCompile(`^([a-zA-Z0-9\._-]+)(=((/[a-zA-Z0-9\._-]+)+))?$`)
+
 	for i := 0; i < len(instances); i++ {
-		config, err := parseConfig(instances[i])
+		instance := instancePattern.FindStringSubmatch(instances[i])
+
+		var config fastdConfig
+		var err error
+
+		if instance == nil || len(instance) != 5 {
+			log.Fatalf("Invalid instance definition: %s", instances[i])
+		}
+
+		// check if there is an provided socket path
+		if instance[3] != "" {
+			// use provided socket path
+			config, err = checkSocket(instance[3])
+		} else {
+			// parse config to get socket path
+			config, err = parseConfig(instance[1])
+		}
+
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Printf("Reading fastd data for %v from %v", instances[i], config.statusSocketPath)
-		go prometheus.MustRegister(NewPrometheusExporter(instances[i], config.statusSocketPath))
+		log.Printf("Reading fastd data for %v from %v", instance[1], config.statusSocketPath)
+		go prometheus.MustRegister(NewPrometheusExporter(instance[1], config.statusSocketPath))
 	}
 
 	// Expose the registered metrics via HTTP.
