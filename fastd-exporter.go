@@ -27,6 +27,7 @@ var (
 	configPathPattern  = flag.String("config-path", "/etc/fastd/%s/fastd.conf", "Override fastd config path, %s will be replaced with the fastd instance name.")
 	webListenAddress   = flag.String("web.listen-address", ":9281", "Address on which to expose metrics and web interface.")
 	webMetricsPath     = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
+	ipAsnLookupEnable  = flag.Bool("ip-asn-lookup.enable", true, "enable usage of ip->asn lookup")
 	ipAsnLookupTimeout = flag.Int("ip-asn-lookup.timeout", 300, "milliseconds to wait for ip->asn lookup to finish")
 )
 
@@ -248,22 +249,23 @@ func (exporter PrometheusExporter) Collect(channel chan<- prometheus.Metric) {
 				ipAddrFamily = "IPv4"
 			}
 
-			anonIP, err := anonymize.IPString(peerIp)
-			if err == nil {
-				peerIp = anonIP
-			}
-
 			peerAsn := ""
 
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*ipAsnLookupTimeout)*time.Millisecond)
+			if *ipAsnLookupEnable {
+				anonIP, err := anonymize.IPString(peerIp)
+				if err == nil {
+					peerIp = anonIP
+				}
 
-			defer cancel()
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*ipAsnLookupTimeout)*time.Millisecond)
+				defer cancel()
 
-			asnlookup, err := ipisp.LookupIP(ctx, net.ParseIP(peerIp))
-			if err != nil {
-				log.Print(err)
-			} else {
-				peerAsn = strconv.Itoa(int(asnlookup.ASN))
+				asnlookup, err := ipisp.LookupIP(ctx, net.ParseIP(peerIp))
+				if err != nil {
+					log.Print(err)
+				} else {
+					peerAsn = strconv.Itoa(int(asnlookup.ASN))
+				}
 			}
 
 			channel <- prometheus.MustNewConstMetric(exporter.peerUp, prometheus.GaugeValue, float64(1), publicKey, peerName, interfaceName)
