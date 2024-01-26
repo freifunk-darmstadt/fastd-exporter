@@ -1,0 +1,45 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: [
+          '1.19', # debian 12
+          '1.20',
+          '1.21'
+        ]
+
+    steps:
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ matrix.go }}
+        cache: false
+
+    - name: Display Go version
+      run: go version
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v4
+
+    - name: Get dependencies
+      run: go get -v -t -d ./...
+
+    - name: Build
+      run: go build -v .
+
+    - name: ls binary
+      run: ls -lah fastd-exporter
+
+    - name: Upload artifact
+      if: matrix.go == '1.21'
+      uses: actions/upload-artifact@v4
+      with:
+        name: fastd-exporter
+        path: ./fastd-exporter
